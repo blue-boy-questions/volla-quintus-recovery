@@ -33,11 +33,17 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq p7zip-full file
 
+      - name: Prepare workspace on large disk
+        run: |
+          set -euo pipefail
+          sudo mkdir -p /mnt/work
+          sudo chown "$(id -u):$(id -g)" /mnt/work
+          echo "WORK=/mnt/work" >> "$GITHUB_ENV"
+
       - name: Download split archive
         run: |
           set -euo pipefail
-          mkdir -p /mnt/work
-          cd /mnt/work
+          cd "$WORK"
           echo "Downloading part 1..."
           curl -fL --retry 3 -o volla.7z.001 "${{ inputs.part1_url }}"
           echo "Downloading part 2..."
@@ -49,14 +55,14 @@ jobs:
       - name: List archive contents
         run: |
           set -euo pipefail
-          cd /mnt/work
+          cd "$WORK"
           echo "=== ARCHIVE LISTING ==="
           7z l volla.7z.001 | tee archive_listing.txt
 
       - name: Full extract
         run: |
           set -euo pipefail
-          cd /mnt/work
+          cd "$WORK"
           mkdir -p full
           7z x volla.7z.001 -ofull -y >/dev/null
           echo "=== all .img and .txt files in archive ==="
@@ -65,7 +71,7 @@ jobs:
       - name: Collect key images
         run: |
           set -euo pipefail
-          cd /mnt/work
+          cd "$WORK"
           mkdir -p out
           for f in boot init_boot vendor_boot dtbo vbmeta recovery; do
             for cand in "${f}.img" "${f}_a.img" "${f}-a.img"; do
@@ -85,7 +91,7 @@ jobs:
       - name: Checksums and summary
         run: |
           set -euo pipefail
-          cd /mnt/work
+          cd "$WORK"
           echo "=== FINAL ARTIFACT SET ==="
           ls -lh out/ || true
           echo "=== md5 ==="
