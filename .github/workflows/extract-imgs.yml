@@ -1,0 +1,100 @@
+name: Extract Volla Quintus boot images
+
+on:
+  workflow_dispatch:
+    inputs:
+      part1_url:
+        description: "Direct URL to .7z.001"
+        required: true
+        default: "https://github.com/sajjad85gh/zahedan-vollaos-rom-porter/releases/download/stable-20260828/volla-algiz-stable.7z.001"
+      part2_url:
+        description: "Direct URL to .7z.002"
+        required: true
+        default: "https://github.com/sajjad85gh/zahedan-vollaos-rom-porter/releases/download/stable-20260828/volla-algiz-stable.7z.002"
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Free up disk space
+        run: |
+          set -euo pipefail
+          echo "=== BEFORE ==="
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          sudo docker image prune --all --force || true
+          echo "=== AFTER ==="
+          df -h /
+
+      - name: Install tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq p7zip-full file
+
+      - name: Download split archive
+        run: |
+          set -euo pipefail
+          mkdir -p /mnt/work
+          cd /mnt/work
+          echo "Downloading part 1..."
+          curl -fL --retry 3 -o volla.7z.001 "${{ inputs.part1_url }}"
+          echo "Downloading part 2..."
+          curl -fL --retry 3 -o volla.7z.002 "${{ inputs.part2_url }}"
+          ls -lh
+          echo "=== md5 of parts ==="
+          md5sum volla.7z.* || true
+
+      - name: List archive contents
+        run: |
+          set -euo pipefail
+          cd /mnt/work
+          echo "=== ARCHIVE LISTING ==="
+          7z l volla.7z.001 | tee archive_listing.txt
+
+      - name: Full extract
+        run: |
+          set -euo pipefail
+          cd /mnt/work
+          mkdir -p full
+          7z x volla.7z.001 -ofull -y >/dev/null
+          echo "=== all .img and .txt files in archive ==="
+          find full -type f \( -iname '*.img' -o -iname '*.txt' \) -printf '%p\t%s bytes\n' | sort
+
+      - name: Collect key images
+        run: |
+          set -euo pipefail
+          cd /mnt/work
+          mkdir -p out
+          for f in boot init_boot vendor_boot dtbo vbmeta recovery; do
+            for cand in "${f}.img" "${f}_a.img" "${f}-a.img"; do
+              src=$(find full -iname "$cand" | head -1)
+              if [ -n "$src" ]; then
+                cp -v "$src" "out/${f}.img"
+                break
+              fi
+            done
+          done
+          src=$(find full -iname 'commands.txt' | head -1)
+          [ -n "$src" ] && cp -v "$src" out/ || true
+          cp archive_listing.txt out/ 2>/dev/null || true
+          echo "=== file type of collected images ==="
+          file out/*.img || true
+
+      - name: Checksums and summary
+        run: |
+          set -euo pipefail
+          cd /mnt/work
+          echo "=== FINAL ARTIFACT SET ==="
+          ls -lh out/ || true
+          echo "=== md5 ==="
+          (cd out && md5sum * 2>/dev/null | tee md5sums.txt) || true
+
+      - name: Upload boot images
+        uses: actions/upload-artifact@v4
+        with:
+          name: quintus-boot-images
+          path: /mnt/work/out/*
+          if-no-files-found: error
+          retention-days: 14
